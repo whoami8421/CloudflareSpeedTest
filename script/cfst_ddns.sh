@@ -3,7 +3,7 @@ PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
 export PATH
 # --------------------------------------------------------------
 #	项目: CloudflareSpeedTest 自动更新域名解析记录
-#	版本: 1.0.4
+#	版本: 1.0.5
 #	作者: XIU2
 #	项目: https://github.com/XIU2/CloudflareSpeedTest
 # --------------------------------------------------------------
@@ -17,10 +17,10 @@ _READ() {
 	[[ -z "${ZONE_ID}" ]] && echo -e "[错误] 缺少配置项 [ZONE_ID] !" && exit 1
 	DNS_RECORDS_ID=$(echo "${CONFIG}"|grep 'DNS_RECORDS_ID='|awk -F '=' '{print $NF}')
 	[[ -z "${DNS_RECORDS_ID}" ]] && echo -e "[错误] 缺少配置项 [DNS_RECORDS_ID] !" && exit 1
-	EMAIL=$(echo "${CONFIG}"|grep 'EMAIL='|awk -F '=' '{print $NF}')
-	[[ -z "${EMAIL}" ]] && echo -e "[错误] 缺少配置项 [EMAIL] !" && exit 1
 	KEY=$(echo "${CONFIG}"|grep 'KEY='|awk -F '=' '{print $NF}')
 	[[ -z "${KEY}" ]] && echo -e "[错误] 缺少配置项 [KEY] !" && exit 1
+	EMAIL=$(echo "${CONFIG}"|grep 'EMAIL='|awk -F '=' '{print $NF}')
+	[[ -z "${EMAIL}" ]] && echo -e "[信息] 缺少配置项 [EMAIL]，由 [API 密钥] 方式转为 [API 令牌] 方式!"
 	TYPE=$(echo "${CONFIG}"|grep 'TYPE='|awk -F '=' '{print $NF}')
 	[[ -z "${TYPE}" ]] && echo -e "[错误] 缺少配置项 [TYPE] !" && exit 1
 	NAME=$(echo "${CONFIG}"|grep 'NAME='|awk -F '=' '{print $NF}')
@@ -32,22 +32,32 @@ _READ() {
 }
 
 _UPDATE() {
-	# 这里可以自己添加、修改 CloudflareST 的运行参数
-	./CloudflareST -o "result_ddns.txt"
+	# 这里可以自己添加、修改 CFST 的运行参数
+	./cfst -o "result_ddns.txt"
 
 	# 判断结果文件是否存在，如果不存在说明结果为 0
-	[[ ! -e "result_ddns.txt" ]] && echo "CloudflareST 测速结果 IP 数量为 0，跳过下面步骤..." && exit 0
+	[[ ! -e "result_ddns.txt" ]] && echo "CFST 测速结果 IP 数量为 0，跳过下面步骤..." && exit 0
 
 	CONTENT=$(sed -n "2,1p" result_ddns.txt | awk -F, '{print $1}')
 	if [[ -z "${CONTENT}" ]]; then
-		echo "CloudflareST 测速结果 IP 数量为 0，跳过下面步骤..."
+		echo "CFST 测速结果 IP 数量为 0，跳过下面步骤..."
 		exit 0
 	fi
-	curl -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${DNS_RECORDS_ID}" \
-		-H "X-Auth-Email: ${EMAIL}" \
-		-H "X-Auth-Key: ${KEY}" \
-		-H "Content-Type: application/json" \
-		--data "{\"type\":\"${TYPE}\",\"name\":\"${NAME}\",\"content\":\"${CONTENT}\",\"ttl\":${TTL},\"proxied\":${PROXIED}}"
+	# 如果 EMAIL 变量是空的，那么就代表要使用 API 令牌方式
+	if [[ -n "${EMAIL}" ]]; then
+		# API 密钥方式（全局权限）
+		curl -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${DNS_RECORDS_ID}" \
+			-H "X-Auth-Email: ${EMAIL}" \
+			-H "X-Auth-Key: ${KEY}" \
+			-H "Content-Type: application/json" \
+			--data "{\"type\":\"${TYPE}\",\"name\":\"${NAME}\",\"content\":\"${CONTENT}\",\"ttl\":${TTL},\"proxied\":${PROXIED}}"
+	else
+		# API 令牌方式（自定义权限）
+		curl -X PUT "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${DNS_RECORDS_ID}" \
+			-H "Authorization: Bearer ${KEY}" \
+			-H "Content-Type: application/json" \
+			--data "{\"type\":\"${TYPE}\",\"name\":\"${NAME}\",\"content\":\"${CONTENT}\",\"ttl\":${TTL},\"proxied\":${PROXIED}}"
+	fi
 }
 
 _READ
